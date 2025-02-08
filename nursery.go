@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync/atomic"
+	"time"
 )
 
 var (
@@ -118,6 +119,14 @@ func Block[T any](block func(n Nursery) T) T {
 	return BlockContext(context.Background(), block)
 }
 
+// BlockTimeout is an alias for BlockContext(ctx, ...) with a timeout sets on `ctx`.
+// See BlockContext for more information.
+func BlockTimeout[T any](timeout time.Duration, block func(n Nursery) T) T {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return BlockContext(ctx, block)
+}
+
 // AllContext executes jobs concurrently and returns their result in
 // when they all are done. Provided context is forwarded to underlying nursery.
 func AllContext[T any](ctx context.Context, jobs ...func(context.Context) T) []T {
@@ -150,8 +159,7 @@ type Result[T any] struct {
 	Err error
 }
 
-// GoroutinePanic holds define a value from a recovered panic along its
-// stacktrace.
+// GoroutinePanic holds value from a recovered panic along a stacktrace.
 type GoroutinePanic struct {
 	Value any
 	Stack []byte
