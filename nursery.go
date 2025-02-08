@@ -45,7 +45,7 @@ func newNursery(ctx context.Context) *nursery {
 		for {
 			panicValue := <-n.routineDone
 			count := n.routineCount.Add(-1)
-			if panicValue.Stack != nil {
+			if panicValue.Stack != "" {
 				// Cancel all routines.
 				n.cancel()
 				n.panics <- panicValue
@@ -84,7 +84,7 @@ func (n *nursery) Go(routine func()) {
 			if err := recover(); err != nil {
 				n.routineDone <- GoroutinePanic{
 					Value: err,
-					Stack: debug.Stack(),
+					Stack: string(debug.Stack()),
 				}
 
 			}
@@ -162,20 +162,16 @@ type Result[T any] struct {
 // GoroutinePanic holds value from a recovered panic along a stacktrace.
 type GoroutinePanic struct {
 	Value any
-	Stack []byte
+	Stack string
 }
 
 // String implements fmt.Stringer.
 func (gp GoroutinePanic) String() string {
-	return fmt.Sprintf("%v\n%v", gp.Value, string(gp.Stack))
+	return fmt.Sprintf("%v\n%v", gp.Value, gp.Stack)
 }
 
 // Error implements error.
 func (gp GoroutinePanic) Error() string {
-	if err := gp.Unwrap(); err != nil {
-		return err.Error()
-	}
-
 	return gp.String()
 }
 
