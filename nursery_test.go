@@ -144,4 +144,23 @@ func TestNursery(t *testing.T) {
 			return nil
 		})
 	})
+
+	t.Run("CancelBlock", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+		defer cancel()
+
+		start := time.Now()
+		BlockContext(ctx, func(n Nursery) error {
+			select {
+			case <-time.After(time.Second):
+			case <-n.Done():
+			}
+
+			return nil
+		})
+
+		if time.Since(start) > 10*time.Millisecond {
+			t.Fatal("failed to cancel block")
+		}
+	})
 }
