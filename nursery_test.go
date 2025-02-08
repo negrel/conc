@@ -1,6 +1,7 @@
 package sgo
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -130,5 +131,17 @@ func TestNursery(t *testing.T) {
 		if !errors.Is(panicValue.(error), ErrNurseryDone) {
 			t.Fatal("use of nursery after end of block didn't panicked with ErrNurseryDone")
 		}
+	})
+
+	t.Run("LastGoroutineCancelContext", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		BlockContext(ctx, func(n Nursery) error {
+			n.Go(func() {
+				time.Sleep(10 * time.Millisecond)
+				cancel()
+			})
+
+			return nil
+		})
 	})
 }

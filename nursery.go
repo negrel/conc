@@ -47,22 +47,14 @@ func newNursery(ctx context.Context) *nursery {
 			if panicValue.Stack != nil {
 				// Cancel all routines.
 				n.cancel()
-				// Send panic value from another goroutine so we can drain canceled
-				// routines here.
-				go func() {
-					n.panics <- panicValue
-				}()
+				n.panics <- panicValue
 			}
 			if count == 0 {
 				close(n.routineDone)
 				// We close panics channel if context isn't canceled.
 				// This way above goroutine forwarding panic value don't write to a
 				// closed channel.
-				select {
-				case <-n.Done():
-				default:
-					close(n.panics)
-				}
+				close(n.panics)
 				n.cancel()
 				break
 			}
