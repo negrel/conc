@@ -14,7 +14,7 @@ var (
 )
 
 // Nursery primitive for structured concurrency. Functions that spawn goroutines
-// should takes a Nursery parameter.
+// should takes a Nursery parameter to avoid leaking go routines.
 // See https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/#nurseries-a-structured-replacement-for-go-statements
 type Nursery interface {
 	context.Context
@@ -52,9 +52,6 @@ func newNursery(ctx context.Context) *nursery {
 			}
 			if count == 0 {
 				close(n.routineDone)
-				// We close panics channel if context isn't canceled.
-				// This way above goroutine forwarding panic value don't write to a
-				// closed channel.
 				close(n.panics)
 				n.cancel()
 				break
