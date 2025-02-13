@@ -127,13 +127,15 @@ func BlockTimeout[T any](timeout time.Duration, block func(n Nursery) T) T {
 // AllContext executes jobs concurrently and returns their result in
 // when they all are done. Provided context is forwarded to underlying nursery.
 func AllContext[T any](ctx context.Context, jobs ...func(context.Context) T) []T {
-	results := make([]T, 0, len(jobs))
+	results := make([]T, len(jobs))
 
 	BlockContext(ctx, func(n Nursery) struct{} {
 		for i, j := range jobs {
+			job := j
 			r := &results[i]
-			n.Go(func() {
-				*r = j(ctx)
+			n.Go(func() error {
+				*r = job(ctx)
+				return nil
 			})
 		}
 
