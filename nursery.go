@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync/atomic"
-	"time"
 )
 
 var (
@@ -102,11 +101,12 @@ func (n *nursery) Go(routine func() error) {
 	}()
 }
 
-// BlockContext starts a nursery block that returns when all goroutines have
+// Block starts a nursery block that returns when all goroutines have
 // returned. If a goroutine panic, context is canceled and panic is immediately
 // forwarded without waiting for other goroutines to handle context cancellation.
-func BlockContext(ctx context.Context, block func(n Nursery) error, opts ...BlockOption) (err error) {
-	n := newNursery(ctx)
+// Errors returned by goroutines are joined and returned at the end of the block.
+func Block(block func(n Nursery) error, opts ...BlockOption) (err error) {
+	n := newNursery(context.Background())
 
 	for _, opt := range opts {
 		opt(n)
@@ -132,47 +132,6 @@ loop:
 	}
 
 	return err
-}
-
-// Block is an alias for BlockContext(context.Background(), ...). See BlockContext
-// for more information.
-func Block(block func(n Nursery) error) error {
-	return BlockContext(context.Background(), block)
-}
-
-// BlockTimeout is an alias for BlockContext(ctx, ...) with a timeout sets on `ctx`.
-// See BlockContext for more information.
-func BlockTimeout(timeout time.Duration, block func(n Nursery) error) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	return BlockContext(ctx, block)
-}
-
-// AllContext executes jobs concurrently and returns their result in
-// when they all are done. Provided context is forwarded to underlying nursery.
-func AllContext[T any](ctx context.Context, jobs ...func(context.Context) T) []T {
-	results := make([]T, len(jobs))
-
-	BlockContext(ctx, func(n Nursery) error {
-		for i, j := range jobs {
-			job := j
-			r := &results[i]
-			n.Go(func() error {
-				*r = job(ctx)
-				return nil
-			})
-		}
-
-		return nil
-	})
-
-	return results
-}
-
-// All executes jobs concurrently and returns their result in
-// when they all are done.
-func All[T any](jobs ...func(context.Context) T) []T {
-	return AllContext(context.Background(), jobs...)
 }
 
 // GoroutinePanic holds value from a recovered panic along a stacktrace.
