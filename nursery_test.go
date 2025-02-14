@@ -29,8 +29,9 @@ func TestNursery(t *testing.T) {
 	t.Run("SleepInGoroutine", func(t *testing.T) {
 		start := time.Now()
 		Block(func(n Nursery) error {
-			n.Go(func() {
+			n.Go(func() error {
 				time.Sleep(10 * time.Millisecond)
+				return nil
 			})
 			return nil
 		})
@@ -70,8 +71,9 @@ func TestNursery(t *testing.T) {
 			}()
 
 			Block(func(n Nursery) error {
-				n.Go(func() {
+				n.Go(func() error {
 					panic("foo")
+					return nil
 				})
 				return nil
 			})
@@ -85,11 +87,13 @@ func TestNursery(t *testing.T) {
 	t.Run("ConcurrentWork", func(t *testing.T) {
 		start := time.Now()
 		Block(func(n Nursery) error {
-			n.Go(func() {
+			n.Go(func() error {
 				time.Sleep(50 * time.Millisecond)
+				return nil
 			})
-			n.Go(func() {
+			n.Go(func() error {
 				time.Sleep(50 * time.Millisecond)
+				return nil
 			})
 			return nil
 		})
@@ -115,8 +119,9 @@ func TestNursery(t *testing.T) {
 					}()
 
 					time.Sleep(time.Millisecond)
-					n.Go(func() {
+					n.Go(func() error {
 						wg.Done()
+						return nil
 					})
 				}()
 				return nil
@@ -136,9 +141,10 @@ func TestNursery(t *testing.T) {
 	t.Run("LastGoroutineCancelContext", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		BlockContext(ctx, func(n Nursery) error {
-			n.Go(func() {
+			n.Go(func() error {
 				time.Sleep(10 * time.Millisecond)
 				cancel()
+				return nil
 			})
 
 			return nil
@@ -161,6 +167,20 @@ func TestNursery(t *testing.T) {
 
 		if time.Since(start) > 10*time.Millisecond {
 			t.Fatal("failed to cancel block")
+		}
+	})
+}
+
+func TestAll(t *testing.T) {
+	t.Run("ResultsOrderIsPreserved", func(t *testing.T) {
+		results := All(func(ctx context.Context) int {
+			time.Sleep(time.Millisecond)
+			return 1
+		}, func(ctx context.Context) int {
+			return 2
+		})
+		if results[0] != 1 || results[1] != 2 {
+			t.Fatal("results order is not preserved")
 		}
 	})
 }

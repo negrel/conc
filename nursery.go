@@ -18,16 +18,20 @@ var (
 // See https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/#nurseries-a-structured-replacement-for-go-statements
 type Nursery interface {
 	context.Context
-	Go(func())
+	Go(func() error)
 }
 
 type nursery struct {
 	context.Context
 	cancel func()
 	panics chan any
+	errors chan error
 
+	maxRoutines  int
 	routineCount atomic.Int64
-	routineDone  chan GoroutinePanic
+	routineDone  chan error
+
+	onError func(error)
 }
 
 func newNursery(ctx context.Context) *nursery {
@@ -36,23 +40,27 @@ func newNursery(ctx context.Context) *nursery {
 		Context:      ctx,
 		cancel:       cancel,
 		panics:       make(chan any),
+		errors:       make(chan error),
 		routineCount: atomic.Int64{},
-		routineDone:  make(chan GoroutinePanic),
+		routineDone:  make(chan error),
 	}
 
 	// Drain goroutines.
 	go func() {
 		for {
-			panicValue := <-n.routineDone
+			routineValue := <-n.routineDone
 			count := n.routineCount.Add(-1)
-			if panicValue.Stack != "" {
+			if gpanic, isPanic := routineValue.(GoroutinePanic); isPanic {
 				// Cancel all routines.
 				n.cancel()
-				n.panics <- panicValue
+				n.panics <- gpanic
+			} else if routineValue != nil {
+				n.errors <- routineValue
 			}
 			if count == 0 {
 				close(n.routineDone)
 				close(n.panics)
+				close(n.errors)
 				n.cancel()
 				break
 			}
@@ -72,7 +80,7 @@ func (n *nursery) mustNotBeDone() {
 }
 
 // Go implements Nursery.
-func (n *nursery) Go(routine func()) {
+func (n *nursery) Go(routine func() error) {
 	n.mustNotBeDone()
 
 	n.routineCount.Add(1)
@@ -86,39 +94,55 @@ func (n *nursery) Go(routine func()) {
 
 			}
 		}()
-		routine()
-		n.routineDone <- GoroutinePanic{}
+		err := routine()
+		if err != nil && n.onError != nil {
+			n.onError(err)
+		}
+		n.routineDone <- err
 	}()
 }
 
 // BlockContext starts a nursery block that returns when all goroutines have
 // returned. If a goroutine panic, context is canceled and panic is immediately
 // forwarded without waiting for other goroutines to handle context cancellation.
-func BlockContext[T any](ctx context.Context, block func(n Nursery) T) T {
+func BlockContext(ctx context.Context, block func(n Nursery) error, opts ...BlockOption) (err error) {
 	n := newNursery(ctx)
-	var result T
-	n.Go(func() {
-		result = block(n)
+
+	for _, opt := range opts {
+		opt(n)
+	}
+
+	n.Go(func() error {
+		block(n)
+		return nil
 	})
 
 	// Wait for all routine to be done.
-	panicValue := <-n.panics
-	if panicValue != nil {
-		panic(panicValue)
+loop:
+	for {
+		select {
+		case panicValue := <-n.panics:
+			if panicValue != nil {
+				panic(panicValue)
+			}
+			break loop
+		case e := <-n.errors:
+			err = errors.Join(err, e)
+		}
 	}
 
-	return result
+	return err
 }
 
 // Block is an alias for BlockContext(context.Background(), ...). See BlockContext
 // for more information.
-func Block[T any](block func(n Nursery) T) T {
+func Block(block func(n Nursery) error) error {
 	return BlockContext(context.Background(), block)
 }
 
 // BlockTimeout is an alias for BlockContext(ctx, ...) with a timeout sets on `ctx`.
 // See BlockContext for more information.
-func BlockTimeout[T any](timeout time.Duration, block func(n Nursery) T) T {
+func BlockTimeout(timeout time.Duration, block func(n Nursery) error) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return BlockContext(ctx, block)
@@ -129,7 +153,7 @@ func BlockTimeout[T any](timeout time.Duration, block func(n Nursery) T) T {
 func AllContext[T any](ctx context.Context, jobs ...func(context.Context) T) []T {
 	results := make([]T, len(jobs))
 
-	BlockContext(ctx, func(n Nursery) struct{} {
+	BlockContext(ctx, func(n Nursery) error {
 		for i, j := range jobs {
 			job := j
 			r := &results[i]
@@ -139,7 +163,7 @@ func AllContext[T any](ctx context.Context, jobs ...func(context.Context) T) []T
 			})
 		}
 
-		return struct{}{}
+		return nil
 	})
 
 	return results
@@ -149,13 +173,6 @@ func AllContext[T any](ctx context.Context, jobs ...func(context.Context) T) []T
 // when they all are done.
 func All[T any](jobs ...func(context.Context) T) []T {
 	return AllContext(context.Background(), jobs...)
-}
-
-// Result is a struct type designed to replace (T, error) return type. It
-// enable returns of error by generic function such as All().
-type Result[T any] struct {
-	Ok  T
-	Err error
 }
 
 // GoroutinePanic holds value from a recovered panic along a stacktrace.
