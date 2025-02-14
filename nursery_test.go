@@ -3,6 +3,8 @@ package sgo
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -183,4 +185,47 @@ func TestAll(t *testing.T) {
 			t.Fatal("results order is not preserved")
 		}
 	})
+}
+
+func BenchmarkNursery(b *testing.B) {
+	b.Run("EmptyBlock", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			Block(func(n Nursery) error {
+				return nil
+			})
+		}
+	})
+
+	for _, routine := range []int{10, 100, 1000} {
+		b.Run(fmt.Sprintf("WithRoutines/%d/NoError", routine), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				Block(func(n Nursery) error {
+					for j := 0; j < routine; j++ {
+						n.Go(func() error {
+							return nil
+						})
+					}
+					return nil
+				})
+			}
+		})
+	}
+
+	for _, routine := range []int{10, 100, 1000} {
+		b.Run(fmt.Sprintf("WithRoutines/%d/Error", routine), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				err := Block(func(n Nursery) error {
+					for j := 0; j < routine; j++ {
+						n.Go(func() error {
+							return io.EOF
+						})
+					}
+					return nil
+				})
+				if err == nil {
+					b.Fatal("block returned nil error")
+				}
+			}
+		})
+	}
 }
