@@ -12,7 +12,7 @@ type BlockOption func(cfg *nursery)
 // the given one.
 func WithContext(ctx context.Context) BlockOption {
 	return func(n *nursery) {
-		n.Context = ctx
+		n.Context, n.cancel = context.WithCancel(ctx)
 	}
 }
 
@@ -40,12 +40,12 @@ func WithErrorHandler(handler func(error)) BlockOption {
 	}
 }
 
-// WithCancelOnError returns a nursery block option that
+// WithCancelOnError returns a nursery block option that sets error handler to
+// inner context cancel function.
 func WithCancelOnError() BlockOption {
 	return func(n *nursery) {
-		cancel := n.cancel
 		n.onError = func(err error) {
-			cancel()
+			n.cancel()
 		}
 	}
 }
@@ -60,6 +60,6 @@ func WithMaxGoroutines(max int) BlockOption {
 		}
 
 		// +1 because block function is a routine also.
-		n.maxRoutines = max + 1
+		n.limiter = make(chan struct{}, max+1)
 	}
 }

@@ -142,8 +142,7 @@ func TestNursery(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		Block(func(n Nursery) error {
 			n.Go(func() error {
-				time.Sleep(10 * time.Millisecond)
-				cancel()
+				time.AfterFunc(10*time.Millisecond, cancel)
 				return nil
 			})
 
