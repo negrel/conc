@@ -8,7 +8,7 @@ import (
 // BlockOption define an option function applied to a nursery block.
 type BlockOption func(cfg *nursery)
 
-// WithContext returns a nursery block option that replace nursery context with
+// WithContext returns a nursery block option that replaces nursery context with
 // the given one.
 func WithContext(ctx context.Context) BlockOption {
 	return func(n *nursery) {
@@ -20,7 +20,11 @@ func WithContext(ctx context.Context) BlockOption {
 // a new one that timeout after the given duration.
 func WithTimeout(timeout time.Duration) BlockOption {
 	return func(n *nursery) {
-		n.Context, n.cancel = context.WithTimeout(n.Context, timeout)
+		ctx := n.Context
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		n.Context, n.cancel = context.WithTimeout(ctx, timeout)
 	}
 }
 
@@ -28,7 +32,11 @@ func WithTimeout(timeout time.Duration) BlockOption {
 // a new one that will be canceled at `d`.
 func WithDeadline(d time.Time) BlockOption {
 	return func(n *nursery) {
-		n.Context, n.cancel = context.WithDeadline(n.Context, d)
+		ctx := n.Context
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		n.Context, n.cancel = context.WithDeadline(ctx, d)
 	}
 }
 
