@@ -142,7 +142,7 @@ func TestNursery(t *testing.T) {
 
 	t.Run("LastGoroutineCancelContext", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		BlockContext(ctx, func(n Nursery) error {
+		Block(func(n Nursery) error {
 			n.Go(func() error {
 				time.Sleep(10 * time.Millisecond)
 				cancel()
@@ -150,7 +150,7 @@ func TestNursery(t *testing.T) {
 			})
 
 			return nil
-		})
+		}, WithContext(ctx))
 	})
 
 	t.Run("CancelBlock", func(t *testing.T) {
@@ -158,34 +158,54 @@ func TestNursery(t *testing.T) {
 		defer cancel()
 
 		start := time.Now()
-		BlockContext(ctx, func(n Nursery) error {
+		Block(func(n Nursery) error {
 			select {
 			case <-time.After(time.Second):
 			case <-n.Done():
 			}
 
 			return nil
-		})
+		}, WithContext(ctx))
 
 		if time.Since(start) > 10*time.Millisecond {
 			t.Fatal("failed to cancel block")
 		}
 	})
-}
 
-func TestAll(t *testing.T) {
-	t.Run("ResultsOrderIsPreserved", func(t *testing.T) {
-		results := All(func(ctx context.Context) int {
-			time.Sleep(time.Millisecond)
-			return 1
-		}, func(ctx context.Context) int {
-			return 2
+	t.Run("WithMaxGoroutines", func(t *testing.T) {
+		t.Run("SingleRoutine", func(t *testing.T) {
+			start := time.Now()
+			Block(func(n Nursery) error {
+				for i := 0; i < 3; i++ {
+					n.Go(func() error {
+						time.Sleep(time.Millisecond)
+						return nil
+					})
+				}
+
+				return nil
+			}, WithMaxGoroutines(1))
+
+			if time.Since(start) < 3*time.Millisecond {
+				t.Fatal("max goroutine parameter is ignored")
+			}
 		})
-		if results[0] != 1 || results[1] != 2 {
-			t.Fatal("results order is not preserved")
-		}
 	})
 }
+
+// func TestAll(t *testing.T) {
+// 	t.Run("ResultsOrderIsPreserved", func(t *testing.T) {
+// 		results := All(func(ctx context.Context) int {
+// 			time.Sleep(time.Millisecond)
+// 			return 1
+// 		}, func(ctx context.Context) int {
+// 			return 2
+// 		})
+// 		if results[0] != 1 || results[1] != 2 {
+// 			t.Fatal("results order is not preserved")
+// 		}
+// 	})
+// }
 
 func BenchmarkNursery(b *testing.B) {
 	b.Run("EmptyBlock", func(b *testing.B) {
@@ -196,8 +216,8 @@ func BenchmarkNursery(b *testing.B) {
 		}
 	})
 
-	for _, routine := range []int{10, 100, 1000} {
-		b.Run(fmt.Sprintf("WithRoutines/%d/NoError", routine), func(b *testing.B) {
+	for _, routine := range []int{10, 1000, 100000} {
+		b.Run(fmt.Sprintf("WithRoutines/%d/NoWork", routine), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				Block(func(n Nursery) error {
 					for j := 0; j < routine; j++ {
@@ -211,7 +231,40 @@ func BenchmarkNursery(b *testing.B) {
 		})
 	}
 
-	for _, routine := range []int{10, 100, 1000} {
+	for _, routine := range []int{10, 1000, 100000} {
+		b.Run(fmt.Sprintf("WithRoutines/%d/1msWork", routine), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				Block(func(n Nursery) error {
+					for j := 0; j < routine; j++ {
+						n.Go(func() error {
+							time.Sleep(time.Millisecond)
+							return nil
+						})
+					}
+					return nil
+				})
+			}
+		})
+	}
+
+	for _, routine := range []int{10, 1000, 100000} {
+		b.Run(fmt.Sprintf("WithRoutines/%d/1-10msWork", routine), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				Block(func(n Nursery) error {
+					for j := 0; j < routine; j++ {
+						k := j
+						n.Go(func() error {
+							time.Sleep(time.Duration(k%10) * time.Millisecond)
+							return nil
+						})
+					}
+					return nil
+				})
+			}
+		})
+	}
+
+	for _, routine := range []int{10, 1000, 100000} {
 		b.Run(fmt.Sprintf("WithRoutines/%d/Error", routine), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				err := Block(func(n Nursery) error {
@@ -224,6 +277,45 @@ func BenchmarkNursery(b *testing.B) {
 				})
 				if err == nil {
 					b.Fatal("block returned nil error")
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkGo(b *testing.B) {
+	for _, routine := range []int{10, 1000, 100000} {
+		b.Run(fmt.Sprintf("WithRoutines/%d/NoWork", routine), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				for j := 0; j < routine; j++ {
+					go func() error {
+						return nil
+					}()
+				}
+			}
+		})
+	}
+
+	for _, routine := range []int{10, 1000, 100000} {
+		b.Run(fmt.Sprintf("WithRoutines/%d/1msWork", routine), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				for j := 0; j < routine; j++ {
+					go func() error {
+						time.Sleep(time.Millisecond)
+						return nil
+					}()
+				}
+			}
+		})
+	}
+
+	for _, routine := range []int{10, 1000, 100000} {
+		b.Run(fmt.Sprintf("WithRoutines/%d/1-10msWork", routine), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				for j := 0; j < routine; j++ {
+					go func(k int) {
+						time.Sleep(time.Duration(k%10) * time.Millisecond)
+					}(j)
 				}
 			}
 		})

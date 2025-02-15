@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
-	"sync/atomic"
 )
 
 var (
@@ -26,47 +25,82 @@ type nursery struct {
 	panics chan any
 	errors chan error
 
-	maxRoutines  int
-	routineCount atomic.Int64
-	routineDone  chan error
+	maxRoutines int
+	routineDone chan error
 
-	onError func(error)
+	goRoutine chan func() error
+	onError   func(error)
 }
 
 func newNursery(ctx context.Context) *nursery {
 	ctx, cancel := context.WithCancel(ctx)
 	n := &nursery{
-		Context:      ctx,
-		cancel:       cancel,
-		panics:       make(chan any),
-		errors:       make(chan error),
-		routineCount: atomic.Int64{},
-		routineDone:  make(chan error),
+		Context:   ctx,
+		cancel:    cancel,
+		panics:    make(chan any),
+		errors:    make(chan error),
+		goRoutine: make(chan func() error),
 	}
 
-	// Drain goroutines.
+	// Event loop.
 	go func() {
-		for {
-			routineValue := <-n.routineDone
-			count := n.routineCount.Add(-1)
-			if gpanic, isPanic := routineValue.(GoroutinePanic); isPanic {
-				// Cancel all routines.
-				n.cancel()
-				n.panics <- gpanic
-			} else if routineValue != nil {
-				n.errors <- routineValue
+		done := false
+		routinesCount := 0
+		routineDone := make(chan error)
+		for !done {
+			handleRoutineDone := func(routineValue error) {
+				routinesCount--
+				if gpanic, isPanic := routineValue.(GoroutinePanic); isPanic {
+					// Cancel all routines.
+					n.cancel()
+					n.panics <- gpanic
+				} else if routineValue != nil {
+					n.errors <- routineValue
+				}
+				if routinesCount == 0 {
+					close(routineDone)
+					close(n.panics)
+					close(n.errors)
+					n.cancel()
+					done = true
+				}
 			}
-			if count == 0 {
-				close(n.routineDone)
-				close(n.panics)
-				close(n.errors)
-				n.cancel()
-				break
+
+			// We can spawn routine.
+			if routinesCount < n.maxRoutines || n.maxRoutines <= 0 {
+				select {
+				case routine := <-n.goRoutine:
+					routinesCount++
+					go func() {
+						defer catchPanics(routineDone)
+						err := routine()
+						if err != nil && n.onError != nil {
+							n.onError(err)
+						}
+						routineDone <- err
+					}()
+
+				case routineValue := <-routineDone:
+					handleRoutineDone(routineValue)
+				}
+			} else {
+				// We can't spawn routine.
+				routineValue := <-routineDone
+				handleRoutineDone(routineValue)
 			}
 		}
 	}()
 
 	return n
+}
+
+func catchPanics(routineDone chan<- error) {
+	if err := recover(); err != nil {
+		routineDone <- GoroutinePanic{
+			Value: err,
+			Stack: string(debug.Stack()),
+		}
+	}
 }
 
 // mustNotBeDone panics if nursery is done.
@@ -82,23 +116,7 @@ func (n *nursery) mustNotBeDone() {
 func (n *nursery) Go(routine func() error) {
 	n.mustNotBeDone()
 
-	n.routineCount.Add(1)
-	go func() {
-		defer func() {
-			if err := recover(); err != nil {
-				n.routineDone <- GoroutinePanic{
-					Value: err,
-					Stack: string(debug.Stack()),
-				}
-
-			}
-		}()
-		err := routine()
-		if err != nil && n.onError != nil {
-			n.onError(err)
-		}
-		n.routineDone <- err
-	}()
+	n.goRoutine <- routine
 }
 
 // Block starts a nursery block that returns when all goroutines have
