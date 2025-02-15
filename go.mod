@@ -1,3 +1,3 @@
-module github.com/negrel/sgo
+module github.com/negrel/conc
 
 go 1.20

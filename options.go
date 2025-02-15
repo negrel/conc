@@ -1,4 +1,4 @@
-package sgo
+package conc
 
 import (
 	"context"

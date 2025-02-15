@@ -1,11 +1,11 @@
-# `sgo` - Structured concurrency for Go
+# `conc` - Structured concurrency for Go
 
 ## Contributing
 
-If you want to contribute to `sco` to add a feature or improve the code contact
+If you want to contribute to `conc` to add a feature or improve the code contact
 me at [alexandre@negrel.dev](mailto:alexandre@negrel.dev), open an
-[issue](https://github.com/negrel/sco/issues) or make a
-[pull request](https://github.com/negrel/sco/pulls).
+[issue](https://github.com/negrel/conc/issues) or make a
+[pull request](https://github.com/negrel/conc/pulls).
 
 ## :stars: Show your support
 
