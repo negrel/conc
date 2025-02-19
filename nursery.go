@@ -78,6 +78,8 @@ func (n *nursery) Go(routine func() error) {
 		case n.limiter <- struct{}{}:
 			// We are below our limit.
 			n.goNew(routine)
+		case <-n.Done():
+			// Context canceled.
 		case n.goRoutine <- routine:
 			// Successfully reused a goroutine.
 		}
@@ -87,18 +89,17 @@ func (n *nursery) Go(routine func() error) {
 func (n *nursery) goNew(routine func() error) {
 	go func() {
 		defer catchPanics(n.errors)
-		for {
-			select {
-			case <-n.Done():
-				// Nursery is done, we can free this goroutine.
-				return
-			case r := <-n.goRoutine:
-				n.errors <- r()
-			}
+		for r := range n.goRoutine {
+			n.errors <- r()
 		}
 	}()
 
-	n.goRoutine <- routine
+	select {
+	case <-n.Done():
+		// Context canceled.
+	case n.goRoutine <- routine:
+		// routine forwarded.
+	}
 }
 
 // Block starts a nursery block that returns when all goroutines have returned.
@@ -131,6 +132,8 @@ func Block(block func(n Nursery) error, opts ...BlockOption) (err error) {
 		err = errors.Join(err, e)
 		count := n.routinesCount.Add(-1)
 		if count == 0 {
+			close(n.goRoutine)
+			close(n.errors)
 			break
 		}
 	}
