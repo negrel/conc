@@ -3,6 +3,7 @@ package conc
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -73,7 +74,6 @@ func TestNursery(t *testing.T) {
 			Block(func(n Nursery) error {
 				n.Go(func() error {
 					panic("foo")
-					return nil
 				})
 				return nil
 			})
@@ -142,7 +142,14 @@ func TestNursery(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		Block(func(n Nursery) error {
 			n.Go(func() error {
-				time.AfterFunc(10*time.Millisecond, cancel)
+				time.Sleep(10 * time.Millisecond)
+				cancel()
+
+				select {
+				case <-n.Done():
+				default:
+					panic("nursery not canceled")
+				}
 				return nil
 			})
 
@@ -187,6 +194,29 @@ func TestNursery(t *testing.T) {
 				t.Fatal("max goroutine parameter is ignored")
 			}
 		})
+	})
+
+	t.Run("WithErrorHandler/Custom", func(t *testing.T) {
+		errHandlerCallCount := 0
+		errIsIoEOF := false
+
+		Block(func(n Nursery) error {
+			n.Go(func() error {
+				return io.EOF
+			})
+
+			return nil
+		}, WithErrorHandler(func(err error) {
+			errHandlerCallCount++
+			errIsIoEOF = err == io.EOF
+		}))
+
+		if errHandlerCallCount != 1 {
+			t.Fatalf("error handler called %v time(s) instead of 1 time", errHandlerCallCount)
+		}
+		if !errIsIoEOF {
+			t.Fatalf("error handler provided error isn't io.EOF")
+		}
 	})
 }
 

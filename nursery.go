@@ -106,7 +106,9 @@ func (n *nursery) goNew(routine func() error) {
 // If a goroutine panic, context is canceled and panic is immediately forwarded
 // without waiting for other goroutines to handle context cancellation. Errors
 // returned by goroutines are joined and returned at the end of the block.
-func Block(block func(n Nursery) error, opts ...BlockOption) (err error) {
+func Block(block func(n Nursery) error, opts ...BlockOption) error {
+	var err *joinError
+
 	n := newNursery()
 	for _, opt := range opts {
 		opt(n)
@@ -129,7 +131,10 @@ func Block(block func(n Nursery) error, opts ...BlockOption) (err error) {
 		if panicValue, isPanic := e.(GoroutinePanic); isPanic {
 			panic(panicValue)
 		}
-		err = errors.Join(err, e)
+		if e != nil && n.onError != nil {
+			n.onError(e)
+			joinErrors(&err, e)
+		}
 		count := n.routinesCount.Add(-1)
 		if count == 0 {
 			close(n.goRoutine)
