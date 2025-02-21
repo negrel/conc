@@ -3,7 +3,6 @@ package conc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"runtime/debug"
 	"sync/atomic"
 )
@@ -11,6 +10,8 @@ import (
 var (
 	ErrNurseryDone = errors.New("nursery is done")
 )
+
+type Routine = func() error
 
 // Nursery primitive for structured concurrency. Functions that spawn goroutines
 // should takes a Nursery parameter to avoid leaking go routines.
@@ -26,7 +27,7 @@ type nursery struct {
 	onError       func(error)
 	errors        chan error
 	limiter       limiter
-	goRoutine     chan func() error
+	goRoutine     chan Routine
 	routinesCount atomic.Int32
 }
 
@@ -144,31 +145,6 @@ func Block(block func(n Nursery) error, opts ...BlockOption) error {
 	}
 
 	return err
-}
-
-// GoroutinePanic holds value from a recovered panic along a stacktrace.
-type GoroutinePanic struct {
-	Value any
-	Stack string
-}
-
-// String implements fmt.Stringer.
-func (gp GoroutinePanic) String() string {
-	return fmt.Sprintf("%v\n%v", gp.Value, gp.Stack)
-}
-
-// Error implements error.
-func (gp GoroutinePanic) Error() string {
-	return gp.String()
-}
-
-// Unwrap unwrap underlying error.
-func (gp GoroutinePanic) Unwrap() error {
-	if err, isErr := gp.Value.(error); isErr {
-		return err
-	}
-
-	return nil
 }
 
 type limiter chan struct{}
