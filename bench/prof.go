@@ -15,7 +15,7 @@ func main() {
 
 	for {
 		conc.Block(func(n conc.Nursery) error {
-			for i := 0; i < 1000; i++ {
+			for i := 0; i < 10; i++ {
 				n.Go(func() error {
 					return nil
 				})
