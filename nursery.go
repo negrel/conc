@@ -2,23 +2,23 @@ package conc
 
 import (
 	"context"
-	"errors"
 	"runtime/debug"
+	"sync"
 	"sync/atomic"
 )
 
-var (
-	ErrNurseryDone = errors.New("nursery is done")
-)
-
+// Routine define a function executed in its own goroutine.
 type Routine = func() error
 
-// Nursery primitive for structured concurrency. Functions that spawn goroutines
-// should takes a Nursery parameter to avoid leaking go routines.
-// See https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/#nurseries-a-structured-replacement-for-go-statements
+// Nursery is a supervisor that executes goroutines and manages their lifecycle.
+// It embeds a context.Context to provide cancellation and deadlines to all
+// spawned goroutines. When the nursery's context is canceled, all goroutines
+// are signaled to stop via the context cancellation.
 type Nursery interface {
 	context.Context
-	Go(func() error)
+
+	// Executes provided [Routine] as soon as possible in a separate goroutine.
+	Go(Routine)
 }
 
 type nursery struct {
@@ -35,6 +35,7 @@ func newNursery() *nursery {
 	n := &nursery{
 		Context:   nil,
 		cancel:    nil,
+		onError:   nil,
 		errors:    make(chan error),
 		limiter:   nil,
 		goRoutine: make(chan func() error),
@@ -52,19 +53,8 @@ func catchPanics(routineDone chan<- error) {
 	}
 }
 
-// mustNotBeDone panics if nursery is done.
-func (n *nursery) mustNotBeDone() {
-	select {
-	case <-n.Done():
-		panic(ErrNurseryDone)
-	default:
-	}
-}
-
 // Go implements Nursery.
 func (n *nursery) Go(routine func() error) {
-	n.mustNotBeDone()
-
 	n.routinesCount.Add(1)
 	if n.limiter == nil {
 		select {
@@ -81,35 +71,46 @@ func (n *nursery) Go(routine func() error) {
 			n.goNew(routine)
 		case <-n.Done():
 			// Context canceled.
+			n.routinesCount.Add(-1)
 		case n.goRoutine <- routine:
 			// Successfully reused a goroutine.
 		}
 	}
 }
 
-func (n *nursery) goNew(routine func() error) {
+func (n *nursery) goNew(routine Routine) {
 	go func() {
 		defer catchPanics(n.errors)
 		for r := range n.goRoutine {
-			n.errors <- r()
+			err := r()
+			if err != nil {
+				n.onError(err)
+			}
+			n.errors <- err
 		}
 	}()
 
 	select {
 	case <-n.Done():
 		// Context canceled.
+		n.routinesCount.Add(-1)
 	case n.goRoutine <- routine:
 		// routine forwarded.
 	}
 }
 
-// Block starts a nursery block that returns when all goroutines have returned.
-// If a goroutine panic, context is canceled and panic is immediately forwarded
-// without waiting for other goroutines to handle context cancellation. Errors
-// returned by goroutines are joined and returned at the end of the block.
-func Block(block func(n Nursery) error, opts ...BlockOption) error {
-	var err *joinError
+func (n *nursery) sendRoutine(routine Routine) {
 
+}
+
+// Block starts a nursery block that returns when all goroutines have returned.
+// If a goroutine returns an error, it is returned after context is canceled
+// unless a custom error handler is provided. In case of a panic context is
+// canceled and panic is immediately forwarded without waiting for other
+// goroutines to handle context cancellation. Error returned by block closure
+// always trigger a context cancellation and is returned if it occurs before a
+// default goroutine error handler is called.
+func Block(block func(n Nursery) error, opts ...BlockOption) (err error) {
 	n := newNursery()
 	for _, opt := range opts {
 		opt(n)
@@ -121,9 +122,27 @@ func Block(block func(n Nursery) error, opts ...BlockOption) error {
 	}
 	defer n.cancel()
 
+	// Default error handler.
+	once := sync.Once{}
+	if n.onError == nil {
+		n.onError = func(e error) {
+			once.Do(func() {
+				n.cancel()
+				err = e
+			})
+		}
+	}
+
 	// Start block.
 	n.Go(func() error {
-		return block(n)
+		e := block(n)
+		if e != nil {
+			once.Do(func() {
+				n.cancel()
+				err = e
+			})
+		}
+		return nil
 	})
 
 	// Event loop.
@@ -131,10 +150,6 @@ func Block(block func(n Nursery) error, opts ...BlockOption) error {
 		e := <-n.errors
 		if panicValue, isPanic := e.(GoroutinePanic); isPanic {
 			panic(panicValue)
-		}
-		if e != nil && n.onError != nil {
-			n.onError(e)
-			joinErrors(&err, e)
 		}
 		count := n.routinesCount.Add(-1)
 		if count == 0 {

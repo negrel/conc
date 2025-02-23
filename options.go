@@ -2,6 +2,7 @@ package conc
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -41,20 +42,33 @@ func WithDeadline(d time.Time) BlockOption {
 }
 
 // WithErrorHandler returns a nursery block option that adds an error handler to
-// the block.
+// the block. Provided error handler is executed in the goroutine that returned
+// the error.
 func WithErrorHandler(handler func(error)) BlockOption {
 	return func(n *nursery) {
 		n.onError = handler
 	}
 }
 
-// WithCancelOnError returns a nursery block option that sets error handler to
-// inner context cancel function.
-func WithCancelOnError() BlockOption {
+// WithCollectErrors returns a nursery block option that sets error handler to
+// collect goroutine errors into provided error slice. Provided error slice must
+// not be read and write until end of block.
+func WithCollectErrors(errors *[]error) BlockOption {
+	mu := &sync.Mutex{}
 	return func(n *nursery) {
 		n.onError = func(err error) {
-			n.cancel()
+			mu.Lock()
+			*errors = append(*errors, err)
+			mu.Unlock()
 		}
+	}
+}
+
+// WithIgnoreErrors returns a nursery block option that sets error handler to a
+// noop function.
+func WithIgnoreErrors() BlockOption {
+	return func(n *nursery) {
+		n.onError = func(err error) {}
 	}
 }
 

@@ -38,9 +38,9 @@ func All[T any](jobs []Job[T], opts ...BlockOption) ([]T, error) {
 	return results, err
 }
 
-// Any executes all jobs in separate goroutines and returns first result.
-// Remaining goroutines are cancelled.
-func Any[T any](jobs []Job[T], opts ...BlockOption) (T, error) {
+// Race executes all jobs in separate goroutines and returns first result.
+// Remaining goroutines are canceled.
+func Race[T any](jobs []Job[T], opts ...BlockOption) (T, error) {
 	var first atomic.Bool
 	var result T
 

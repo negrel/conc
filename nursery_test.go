@@ -2,7 +2,6 @@ package conc
 
 import (
 	"context"
-	"errors"
 	"io"
 	"sync"
 	"testing"
@@ -133,7 +132,7 @@ func TestNursery(t *testing.T) {
 		if panicValue == nil {
 			t.Fatal("use of nursery after end of block didn't panic")
 		}
-		if !errors.Is(panicValue.(error), ErrNurseryDone) {
+		if panicValue.(error).Error() != "send on closed channel" {
 			t.Fatal("use of nursery after end of block didn't panicked with ErrNurseryDone")
 		}
 	})
@@ -219,17 +218,3 @@ func TestNursery(t *testing.T) {
 		}
 	})
 }
-
-// func TestAll(t *testing.T) {
-// 	t.Run("ResultsOrderIsPreserved", func(t *testing.T) {
-// 		results := All(func(ctx context.Context) int {
-// 			time.Sleep(time.Millisecond)
-// 			return 1
-// 		}, func(ctx context.Context) int {
-// 			return 2
-// 		})
-// 		if results[0] != 1 || results[1] != 2 {
-// 			t.Fatal("results order is not preserved")
-// 		}
-// 	})
-// }
