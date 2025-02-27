@@ -10,17 +10,23 @@ import (
 
 func TestNursery(t *testing.T) {
 	t.Run("EmptyBlock", func(t *testing.T) {
-		Block(func(n Nursery) error {
+		err := Block(func(n Nursery) error {
 			return nil
 		})
+		if err != nil {
+			t.Error(err)
+		}
 	})
 
 	t.Run("SleepInBlock", func(t *testing.T) {
 		start := time.Now()
-		Block(func(n Nursery) error {
+		err := Block(func(n Nursery) error {
 			time.Sleep(10 * time.Millisecond)
 			return nil
 		})
+		if err != nil {
+			t.Error(err)
+		}
 		if time.Since(start) < 10*time.Millisecond {
 			t.Fatal("block returned before end of sleep")
 		}
@@ -28,13 +34,16 @@ func TestNursery(t *testing.T) {
 
 	t.Run("SleepInGoroutine", func(t *testing.T) {
 		start := time.Now()
-		Block(func(n Nursery) error {
+		err := Block(func(n Nursery) error {
 			n.Go(func() error {
 				time.Sleep(10 * time.Millisecond)
 				return nil
 			})
 			return nil
 		})
+		if err != nil {
+			t.Error(err)
+		}
 		if time.Since(start) < 10*time.Millisecond {
 			t.Fatal("block returned before end of sleep")
 		}
@@ -50,9 +59,12 @@ func TestNursery(t *testing.T) {
 				}
 			}()
 
-			Block(func(n Nursery) error {
+			err := Block(func(n Nursery) error {
 				panic("foo")
 			})
+			if err != nil {
+				t.Error(err)
+			}
 		}()
 
 		if panicValue.(GoroutinePanic).Value != "foo" {
@@ -70,12 +82,15 @@ func TestNursery(t *testing.T) {
 				}
 			}()
 
-			Block(func(n Nursery) error {
+			err := Block(func(n Nursery) error {
 				n.Go(func() error {
 					panic("foo")
 				})
 				return nil
 			})
+			if err != nil {
+				t.Error(err)
+			}
 		}()
 
 		if panicValue.(GoroutinePanic).Value != "foo" {
@@ -85,7 +100,7 @@ func TestNursery(t *testing.T) {
 
 	t.Run("ConcurrentWork", func(t *testing.T) {
 		start := time.Now()
-		Block(func(n Nursery) error {
+		err := Block(func(n Nursery) error {
 			n.Go(func() error {
 				time.Sleep(50 * time.Millisecond)
 				return nil
@@ -96,6 +111,9 @@ func TestNursery(t *testing.T) {
 			})
 			return nil
 		})
+		if err != nil {
+			t.Error(err)
+		}
 		if time.Since(start) >= 100*time.Millisecond {
 			t.Fatal("routines aren't executed concurrently")
 		}
@@ -108,7 +126,7 @@ func TestNursery(t *testing.T) {
 			var wg sync.WaitGroup
 			wg.Add(1)
 
-			Block(func(n Nursery) error {
+			err := Block(func(n Nursery) error {
 				go func() {
 					defer func() {
 						if v := recover(); v != nil {
@@ -125,6 +143,9 @@ func TestNursery(t *testing.T) {
 				}()
 				return nil
 			})
+			if err != nil {
+				t.Error(err)
+			}
 
 			wg.Wait()
 		}()
@@ -139,7 +160,7 @@ func TestNursery(t *testing.T) {
 
 	t.Run("LastGoroutineCancelContext", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		Block(func(n Nursery) error {
+		err := Block(func(n Nursery) error {
 			n.Go(func() error {
 				time.Sleep(10 * time.Millisecond)
 				cancel()
@@ -154,6 +175,9 @@ func TestNursery(t *testing.T) {
 
 			return nil
 		}, WithContext(ctx))
+		if err != nil {
+			t.Error(err)
+		}
 	})
 
 	t.Run("CancelBlock", func(t *testing.T) {
@@ -161,7 +185,7 @@ func TestNursery(t *testing.T) {
 		defer cancel()
 
 		start := time.Now()
-		Block(func(n Nursery) error {
+		err := Block(func(n Nursery) error {
 			select {
 			case <-time.After(time.Second):
 			case <-n.Done():
@@ -169,6 +193,9 @@ func TestNursery(t *testing.T) {
 
 			return nil
 		}, WithContext(ctx))
+		if err != nil {
+			t.Error(err)
+		}
 
 		if time.Since(start) > 10*time.Millisecond {
 			t.Fatal("failed to cancel block")
@@ -178,7 +205,7 @@ func TestNursery(t *testing.T) {
 	t.Run("WithMaxGoroutines", func(t *testing.T) {
 		t.Run("SingleRoutine", func(t *testing.T) {
 			start := time.Now()
-			Block(func(n Nursery) error {
+			err := Block(func(n Nursery) error {
 				for i := 0; i < 3; i++ {
 					n.Go(func() error {
 						time.Sleep(time.Millisecond)
@@ -188,6 +215,9 @@ func TestNursery(t *testing.T) {
 
 				return nil
 			}, WithMaxGoroutines(1))
+			if err != nil {
+				t.Error(err)
+			}
 
 			if time.Since(start) < 3*time.Millisecond {
 				t.Fatal("max goroutine parameter is ignored")
@@ -199,7 +229,7 @@ func TestNursery(t *testing.T) {
 		errHandlerCallCount := 0
 		errIsIoEOF := false
 
-		Block(func(n Nursery) error {
+		err := Block(func(n Nursery) error {
 			n.Go(func() error {
 				return io.EOF
 			})
@@ -209,6 +239,9 @@ func TestNursery(t *testing.T) {
 			errHandlerCallCount++
 			errIsIoEOF = err == io.EOF
 		}))
+		if err != nil {
+			t.Error(err)
+		}
 
 		if errHandlerCallCount != 1 {
 			t.Fatalf("error handler called %v time(s) instead of 1 time", errHandlerCallCount)

@@ -99,10 +99,6 @@ func (n *nursery) goNew(routine Routine) {
 	}
 }
 
-func (n *nursery) sendRoutine(routine Routine) {
-
-}
-
 // Block starts a nursery block that returns when all goroutines have returned.
 // If a goroutine returns an error, it is returned after context is canceled
 // unless a custom error handler is provided. In case of a panic context is

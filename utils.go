@@ -21,7 +21,7 @@ type Job[T any] func(context.Context) (T, error)
 // All executes all jobs in separate goroutines and stores each result in
 // the returned slice.
 func All[T any](jobs []Job[T], opts ...BlockOption) ([]T, error) {
-	results := make([]T, len(jobs), len(jobs))
+	results := make([]T, len(jobs))
 
 	err := Block(func(n Nursery) error {
 		for i, job := range jobs {
@@ -94,7 +94,7 @@ func Range2[K, V any](seq iter.Seq2[K, V], block func(context.Context, K, V) err
 // Map applies f to each element of input and returns a new slice containing
 // mapped results.
 func Map[T any](input []T, f func(context.Context, T) (T, error), opts ...BlockOption) ([]T, error) {
-	results := make([]T, len(input), len(input))
+	results := make([]T, len(input))
 	err := doMap(input, results, f, opts...)
 	return results, err
 }
