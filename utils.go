@@ -93,8 +93,8 @@ func Range2[K, V any](seq iter.Seq2[K, V], block func(context.Context, K, V) err
 
 // Map applies f to each element of input and returns a new slice containing
 // mapped results.
-func Map[T any](input []T, f func(context.Context, T) (T, error), opts ...BlockOption) ([]T, error) {
-	results := make([]T, len(input), len(input)) //nolint:gosimple
+func Map[T any, V any](input []T, f func(context.Context, T) (V, error), opts ...BlockOption) ([]V, error) {
+	results := make([]V, len(input), len(input)) //nolint:gosimple
 	err := doMap(input, results, f, opts...)
 	return results, err
 }
@@ -105,7 +105,7 @@ func MapInPlace[T any](input []T, f func(context.Context, T) (T, error), opts ..
 	return input, err
 }
 
-func doMap[T any](input []T, results []T, f func(context.Context, T) (T, error), opts ...BlockOption) error {
+func doMap[T any, V any](input []T, results []V, f func(context.Context, T) (V, error), opts ...BlockOption) error {
 	return Block(func(n Nursery) error {
 		for i, v := range input {
 			value := v
