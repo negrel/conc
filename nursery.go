@@ -29,6 +29,7 @@ type nursery struct {
 	limiter       limiter
 	goRoutine     chan Routine
 	routinesCount atomic.Int32
+	bufSize       int
 }
 
 func newNursery() *nursery {
@@ -39,6 +40,7 @@ func newNursery() *nursery {
 		errors:    make(chan error),
 		limiter:   nil,
 		goRoutine: make(chan func() error),
+		bufSize:   0,
 	}
 
 	return n

@@ -153,3 +153,108 @@ func Map2[K comparable, V any](input map[K]V, f func(context.Context, K, V) (K, 
 		return nil
 	}, opts...)
 }
+
+// AsyncMap concurrently transforms an input sequence into an output sequence.
+// The order of the output sequence is non-deterministic. Items are delivered as they finish.
+//
+// Within the parent nursery, a goroutine is launched which creates a nested nursery.
+// The sequence is processed entirely within this nested nursery. By default, the parent
+// nursery is used as the context for the nested nursery.
+//
+// If a transform function returns an error, that error is propagated to the parent nursery
+// and the nested nursery's context is canceled, stopping processing of all remaining items.
+//
+// By default, AsyncMap uses an unbuffered channel for outputs. For high-throughput scenarios
+// where producers might temporarily outpace consumers, use WithOutputBuffer to specify
+// a buffer size.
+//
+// If consuming from the output sequence stops before it's fully drained (e.g.,
+// breaking out of the range loop early), transformation goroutines may block indefinitely.
+// To prevent this, cancel the parent nursery's context when done consuming. For multi-stage
+// pipelines requiring finer control, provide a separate cancellable context via WithContext.
+//
+// Example:
+//
+//	_ = Block(func(n Nursery) error {
+//		inputs := slices.Values([]int{1, 2, 3, 4, 5})
+//		outputs := conc.AsyncMap(n, inputs, func(_ context.Context, i int) (string, error) {
+//			return fmt.Sprintf("item-%d", i), nil
+//		})
+//
+//		for output := range outputs {
+//			fmt.Println(output)
+//		}
+//	})
+//
+// Note: If supplying a WithContext option, it will override the default parent context.
+// Ensure any custom context derives from the parent nursery context to maintain proper
+// cancellation propagation.
+func AsyncMap[I any, O any](
+	parent Nursery,
+	inputs iter.Seq[I],
+	transform func(context.Context, I) (O, error),
+	opts ...BlockOption,
+) iter.Seq[O] {
+	// Create a temporary nursery to get correct output buffer size
+	tn := newNursery()
+	for _, opt := range opts {
+		opt(tn)
+	}
+	var outputs chan O
+	if tn.bufSize > 0 {
+		outputs = make(chan O, tn.bufSize)
+	} else {
+		outputs = make(chan O)
+	}
+	allOpts := append([]BlockOption{WithContext(parent)}, opts...)
+
+	// Core processing loop
+	process := func(nested Nursery) error {
+		done := nested.Done()
+		for input := range inputs {
+			select {
+			case <-done:
+				return nil
+			default:
+				input := input
+				nested.Go(func() error {
+					output, err := transform(nested, input)
+					if err != nil {
+						return err
+					}
+					select {
+					case outputs <- output:
+						return nil
+					case <-done:
+						return nested.Err()
+					}
+				})
+			}
+		}
+		return nil
+	}
+
+	// Launch
+	parent.Go(func() error {
+		defer func() {
+			close(outputs)
+		}()
+		if err := Block(process, allOpts...); err != nil {
+			return err
+		}
+		return nil
+	})
+
+	return chanSeq(outputs)
+}
+
+// chanSeq returns an iterator that yields the values of ch until it is closed.
+func chanSeq[T any](ch <-chan T) iter.Seq[T] {
+	return func(yield func(T) bool) {
+		for v := range ch {
+			if !yield(v) {
+				return
+			}
+		}
+	}
+}
