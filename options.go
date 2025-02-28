@@ -79,6 +79,9 @@ func WithMaxGoroutines(max int) BlockOption {
 	return func(n *nursery) {
 		if max < 0 {
 			panic("max goroutine option must be a non negative integer")
+		} else if max == 0 {
+			n.limiter = nil
+			return
 		}
 
 		// +1 because block function is a routine also.
