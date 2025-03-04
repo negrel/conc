@@ -3,6 +3,7 @@ package conc
 import (
 	"context"
 	"iter"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -13,6 +14,16 @@ func Sleep(ctx context.Context, d time.Duration) {
 	select {
 	case <-ctx.Done():
 	case <-time.After(d):
+	}
+}
+
+// IsDone returns whether provided context is done.
+func IsDone(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
 	}
 }
 
@@ -123,25 +134,18 @@ func doMap[T any, V any](input []T, results []V, f func(context.Context, T) (V, 
 // Map2 applies f to each key, value pair of input and returns a new slice containing
 // mapped results.
 func Map2[K comparable, V any](input map[K]V, f func(context.Context, K, V) (K, V, error), opts ...BlockOption) (map[K]V, error) {
+	var mu sync.Mutex
+
 	results := make(map[K]V)
-	err := doMap2(input, results, f, opts...)
-	return results, err
-}
-
-// MapInPlace2 applies f to each key, value pair of input and returns modified map.
-func Map2InPlace[K comparable, V any](input map[K]V, f func(context.Context, K, V) (K, V, error), opts ...BlockOption) (map[K]V, error) {
-	err := doMap2(input, input, f, opts...)
-	return input, err
-}
-
-func doMap2[K comparable, V any](input map[K]V, results map[K]V, f func(context.Context, K, V) (K, V, error), opts ...BlockOption) error {
-	return Block(func(n Nursery) error {
+	return results, Block(func(n Nursery) error {
 		for k, v := range input {
 			key := k
 			value := v
 			n.Go(func() error {
 				newK, newV, err := f(n, key, value)
+				mu.Lock()
 				results[newK] = newV
+				mu.Unlock()
 				return err
 			})
 		}

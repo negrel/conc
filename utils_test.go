@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"iter"
-	"maps"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -36,6 +36,19 @@ func TestSleep(t *testing.T) {
 	})
 }
 
+func TestIsDone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	if IsDone(ctx) {
+		t.Fatal("expected false, got true")
+	}
+
+	cancel()
+
+	if !IsDone(ctx) {
+		t.Fatal("expected true, got false")
+	}
+}
+
 func TestAll(t *testing.T) {
 	t.Run("NoError", func(t *testing.T) {
 		jobs := []Job[int]{
@@ -58,9 +71,15 @@ func TestAll(t *testing.T) {
 	t.Run("JobError", func(t *testing.T) {
 		expectedErr := errors.New("test error")
 		jobs := []Job[int]{
-			func(ctx context.Context) (int, error) { return 1, nil },
-			func(ctx context.Context) (int, error) { return 0, expectedErr },
-			func(ctx context.Context) (int, error) { return 3, nil },
+			func(ctx context.Context) (int, error) {
+				return 1, nil
+			},
+			func(ctx context.Context) (int, error) {
+				return 0, expectedErr
+			},
+			func(ctx context.Context) (int, error) {
+				return 3, nil
+			},
 		}
 
 		_, err := All(jobs)
@@ -171,7 +190,7 @@ func TestRange(t *testing.T) {
 func TestRange2(t *testing.T) {
 	t.Run("NoJobError", func(t *testing.T) {
 		items := map[string]int{"a": 1, "b": 2, "c": 3}
-		processed := make(map[string]bool)
+		processed := sync.Map{}
 
 		seq := iter.Seq2[string, int](
 			func(yield func(string, int) bool) {
@@ -186,7 +205,7 @@ func TestRange2(t *testing.T) {
 		err := Range2(
 			seq,
 			func(ctx context.Context, k string, v int) error {
-				processed[k] = true
+				processed.Store(k, true)
 				return nil
 			},
 		)
@@ -195,9 +214,10 @@ func TestRange2(t *testing.T) {
 			t.Errorf("unexpected error: %v", err)
 		}
 
-		expected := map[string]bool{"a": true, "b": true, "c": true}
-		if !reflect.DeepEqual(processed, expected) {
-			t.Errorf("got %v, want %v", processed, expected)
+		for _, k := range []string{"a", "b", "c"} {
+			if b, ok := processed.Load(k); !ok || b.(bool) == false {
+				t.Errorf("key %v not processed", k)
+			}
 		}
 	})
 
@@ -343,53 +363,6 @@ func TestMap2(t *testing.T) {
 					return "", 0, expectedErr
 				}
 				return k + k, v * 2, nil
-			},
-		)
-
-		if err == nil {
-			t.Error("expected error, got nil")
-		}
-	})
-}
-
-func TestMap2InPlace(t *testing.T) {
-	t.Run("NoJobError", func(t *testing.T) {
-		input := map[string]int{"a": 1, "b": 2, "c": 3}
-		originalInput := maps.Clone(input)
-
-		results, err := Map2InPlace(
-			input,
-			func(ctx context.Context, k string, v int) (string, int, error) {
-				return k, v * 2, nil
-			},
-		)
-
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		expected := map[string]int{"a": 2, "b": 4, "c": 6}
-		if !reflect.DeepEqual(results, expected) {
-			t.Errorf("got %v, want %v", results, expected)
-		}
-
-		// Verify the input map was modified
-		if reflect.DeepEqual(input, originalInput) {
-			t.Error("Map2InPlace did not modify the input map")
-		}
-		if !reflect.DeepEqual(input, expected) {
-			t.Error("Map2InPlace did not correctly modify the input map")
-		}
-	})
-
-	t.Run("JobError", func(t *testing.T) {
-		expectedErr := errors.New("test error")
-		input := map[string]int{"a": 1, "b": 2, "c": 3}
-
-		_, err := Map2InPlace(
-			input,
-			func(ctx context.Context, k string, v int) (string, int, error) {
-				return k, v, expectedErr
 			},
 		)
 
