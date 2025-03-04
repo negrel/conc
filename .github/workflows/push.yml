@@ -19,7 +19,7 @@ jobs:
       - uses: cachix/install-nix-action@v24
       - name: Test
         run: |
-          nix develop --command go test -coverprofile=c.out -v ./...
+          nix develop --command go test -race -coverprofile=c.out -v ./...
           nix develop --command go tool cover -func=c.out
 
   lint:
