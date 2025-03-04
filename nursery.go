@@ -55,7 +55,11 @@ func catchPanics(routineDone chan<- error) {
 
 // Go implements Nursery.
 func (n *nursery) Go(routine func() error) {
-	n.routinesCount.Add(1)
+	new := n.routinesCount.Add(1)
+	if new < 2 {
+		panic("use of nursery after end of block")
+	}
+
 	if n.limiter == nil {
 		select {
 		case n.goRoutine <- routine:
@@ -69,9 +73,6 @@ func (n *nursery) Go(routine func() error) {
 		case n.limiter <- struct{}{}:
 			// We are below our limit.
 			n.goNew(routine)
-		case <-n.Done():
-			// Context canceled.
-			n.routinesCount.Add(-1)
 		case n.goRoutine <- routine:
 			// Successfully reused a goroutine.
 		}
@@ -82,6 +83,8 @@ func (n *nursery) goNew(routine Routine) {
 	go func() {
 		defer catchPanics(n.errors)
 		for r := range n.goRoutine {
+			// TODO: add option to skip routine if context is canceled.
+
 			err := r()
 			if err != nil {
 				n.onError(err)
@@ -90,13 +93,8 @@ func (n *nursery) goNew(routine Routine) {
 		}
 	}()
 
-	select {
-	case <-n.Done():
-		// Context canceled.
-		n.routinesCount.Add(-1)
-	case n.goRoutine <- routine:
-		// routine forwarded.
-	}
+	// Execute routine.
+	n.goRoutine <- routine
 }
 
 // Block starts a nursery block that returns when all goroutines have returned.
@@ -106,6 +104,9 @@ func (n *nursery) goNew(routine Routine) {
 // goroutines to handle context cancellation. Error returned by block closure
 // always trigger a context cancellation and is returned if it occurs before a
 // default goroutine error handler is called.
+// Calling [Nursery].Go() after end of block always panic. Calling [Nursery].Go
+// after context is canceled still runs the provided function, you're responsible
+// for handling cancellation.
 func Block(block func(n Nursery) error, opts ...BlockOption) (err error) {
 	n := newNursery()
 	for _, opt := range opts {
@@ -130,6 +131,7 @@ func Block(block func(n Nursery) error, opts ...BlockOption) (err error) {
 	}
 
 	// Start block.
+	n.routinesCount.Add(1) // Bypass end of block check.
 	n.Go(func() error {
 		e := block(n)
 		if e != nil {
@@ -138,6 +140,7 @@ func Block(block func(n Nursery) error, opts ...BlockOption) (err error) {
 				err = e
 			})
 		}
+		n.routinesCount.Add(-1) // Restore end of block check.
 		return nil
 	})
 

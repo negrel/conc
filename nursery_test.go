@@ -154,7 +154,7 @@ func TestNursery(t *testing.T) {
 		if panicValue == nil {
 			t.Fatal("use of nursery after end of block didn't panic")
 		}
-		if panicValue.(error).Error() != "send on closed channel" {
+		if panicValue.(string) != "use of nursery after end of block" {
 			t.Fatal("use of nursery after end of block didn't panicked with ErrNurseryDone")
 		}
 	})
@@ -299,39 +299,6 @@ func TestNursery(t *testing.T) {
 		})
 		if err != expectedErr {
 			t.Fatalf("expected error %v, got %v", expectedErr, err)
-		}
-	})
-
-	t.Run("LimiterWithContextCancel", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-
-		blockCh := make(chan struct{})
-		doneCh := make(chan struct{})
-
-		err := Block(func(n Nursery) error {
-			// Fill the limiter to capacity with a long-running goroutine
-			n.Go(func() error {
-				close(blockCh)
-				<-doneCh
-				return nil
-			})
-
-			<-blockCh
-			cancel()
-
-			// Try to add another goroutine - this should hit the context.Done() case
-			// since the limiter is full and the context is canceled
-			n.Go(func() error {
-				t.Fatal("this goroutine should not run")
-				return nil
-			})
-
-			close(doneCh)
-			return nil
-		}, WithMaxGoroutines(1), WithContext(ctx))
-
-		if err != nil {
-			t.Error(err)
 		}
 	})
 
