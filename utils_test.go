@@ -11,7 +11,7 @@ import (
 )
 
 func TestSleep(t *testing.T) {
-	t.Run("respects duration", func(t *testing.T) {
+	t.Run("BackgroundContext", func(t *testing.T) {
 		ctx := context.Background()
 		start := time.Now()
 		Sleep(ctx, 100*time.Millisecond)
@@ -21,7 +21,7 @@ func TestSleep(t *testing.T) {
 		}
 	})
 
-	t.Run("respects context cancellation", func(t *testing.T) {
+	t.Run("ContextCanceled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		start := time.Now()
 		go func() {
@@ -37,7 +37,7 @@ func TestSleep(t *testing.T) {
 }
 
 func TestAll(t *testing.T) {
-	t.Run("executes all jobs", func(t *testing.T) {
+	t.Run("NoError", func(t *testing.T) {
 		jobs := []Job[int]{
 			func(ctx context.Context) (int, error) { return 1, nil },
 			func(ctx context.Context) (int, error) { return 2, nil },
@@ -55,7 +55,7 @@ func TestAll(t *testing.T) {
 		}
 	})
 
-	t.Run("handles errors", func(t *testing.T) {
+	t.Run("JobError", func(t *testing.T) {
 		expectedErr := errors.New("test error")
 		jobs := []Job[int]{
 			func(ctx context.Context) (int, error) { return 1, nil },
@@ -71,7 +71,7 @@ func TestAll(t *testing.T) {
 }
 
 func TestRace(t *testing.T) {
-	t.Run("returns first result", func(t *testing.T) {
+	t.Run("ReturnsFirstResult", func(t *testing.T) {
 		jobs := []Job[int]{
 			func(ctx context.Context) (int, error) {
 				time.Sleep(100 * time.Millisecond)
@@ -95,7 +95,7 @@ func TestRace(t *testing.T) {
 		}
 	})
 
-	t.Run("handles errors", func(t *testing.T) {
+	t.Run("JobError", func(t *testing.T) {
 		expectedErr := errors.New("test error")
 		jobs := []Job[int]{
 			func(ctx context.Context) (int, error) {
@@ -115,7 +115,7 @@ func TestRace(t *testing.T) {
 }
 
 func TestRange(t *testing.T) {
-	t.Run("processes all items", func(t *testing.T) {
+	t.Run("NoJobError", func(t *testing.T) {
 		numbers := []int{1, 2, 3}
 		processed := make([]bool, len(numbers))
 		remaining := make([]int, len(numbers))
@@ -150,7 +150,7 @@ func TestRange(t *testing.T) {
 		}
 	})
 
-	t.Run("handles errors", func(t *testing.T) {
+	t.Run("WithError", func(t *testing.T) {
 		expectedErr := errors.New("test error")
 		seq := iter.Seq[int](
 			func(yield func(int) bool) {
@@ -169,7 +169,7 @@ func TestRange(t *testing.T) {
 }
 
 func TestRange2(t *testing.T) {
-	t.Run("processes all items", func(t *testing.T) {
+	t.Run("NoJobError", func(t *testing.T) {
 		items := map[string]int{"a": 1, "b": 2, "c": 3}
 		processed := make(map[string]bool)
 
@@ -200,10 +200,36 @@ func TestRange2(t *testing.T) {
 			t.Errorf("got %v, want %v", processed, expected)
 		}
 	})
+
+	t.Run("JobError", func(t *testing.T) {
+		expectedErr := errors.New("test error")
+		items := map[string]int{"a": 1, "b": 2, "c": 3}
+
+		seq := iter.Seq2[string, int](
+			func(yield func(string, int) bool) {
+				for k, v := range items {
+					if !yield(k, v) {
+						return
+					}
+				}
+			},
+		)
+
+		err := Range2(
+			seq,
+			func(ctx context.Context, k string, v int) error {
+				return expectedErr
+			},
+		)
+
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+	})
 }
 
 func TestMap(t *testing.T) {
-	t.Run("maps all items", func(t *testing.T) {
+	t.Run("NoJobError", func(t *testing.T) {
 		input := []int{1, 2, 3}
 		results, err := Map(
 			input,
@@ -222,7 +248,7 @@ func TestMap(t *testing.T) {
 		}
 	})
 
-	t.Run("handles errors", func(t *testing.T) {
+	t.Run("JobError", func(t *testing.T) {
 		input := []int{1, 2, 3}
 		expectedErr := errors.New("test error")
 		_, err := Map(
@@ -242,7 +268,7 @@ func TestMap(t *testing.T) {
 }
 
 func TestMapInPlace(t *testing.T) {
-	t.Run("maps all items in place", func(t *testing.T) {
+	t.Run("NoJobError", func(t *testing.T) {
 		input := []int{1, 2, 3}
 		results, err := MapInPlace(
 			input,
@@ -265,10 +291,30 @@ func TestMapInPlace(t *testing.T) {
 			t.Error("MapInPlace created new slice instead of modifying in place")
 		}
 	})
+
+	t.Run("JobError", func(t *testing.T) {
+		input := []int{1, 2, 3}
+		expectedErr := errors.New("test error")
+		results, err := MapInPlace(
+			input,
+			func(ctx context.Context, n int) (int, error) {
+				return n, expectedErr
+			},
+		)
+
+		if err == nil {
+			t.Error("expected nil, got error")
+		}
+
+		// Verify it's the same slice
+		if &input[0] != &results[0] {
+			t.Error("MapInPlace created new slice instead of modifying in place")
+		}
+	})
 }
 
 func TestMap2(t *testing.T) {
-	t.Run("maps all items", func(t *testing.T) {
+	t.Run("NoJobError", func(t *testing.T) {
 		input := map[string]int{"a": 1, "b": 2, "c": 3}
 		results, err := Map2(
 			input,
@@ -287,7 +333,7 @@ func TestMap2(t *testing.T) {
 		}
 	})
 
-	t.Run("handles errors", func(t *testing.T) {
+	t.Run("JobError", func(t *testing.T) {
 		input := map[string]int{"a": 1, "b": 2}
 		expectedErr := errors.New("test error")
 		_, err := Map2(
@@ -307,7 +353,7 @@ func TestMap2(t *testing.T) {
 }
 
 func TestMap2InPlace(t *testing.T) {
-	t.Run("maps all items in place", func(t *testing.T) {
+	t.Run("NoJobError", func(t *testing.T) {
 		input := map[string]int{"a": 1, "b": 2, "c": 3}
 		originalInput := maps.Clone(input)
 
@@ -333,6 +379,22 @@ func TestMap2InPlace(t *testing.T) {
 		}
 		if !reflect.DeepEqual(input, expected) {
 			t.Error("Map2InPlace did not correctly modify the input map")
+		}
+	})
+
+	t.Run("JobError", func(t *testing.T) {
+		expectedErr := errors.New("test error")
+		input := map[string]int{"a": 1, "b": 2, "c": 3}
+
+		_, err := Map2InPlace(
+			input,
+			func(ctx context.Context, k string, v int) (string, int, error) {
+				return k, v, expectedErr
+			},
+		)
+
+		if err == nil {
+			t.Error("expected error, got nil")
 		}
 	})
 }

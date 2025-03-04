@@ -204,6 +204,46 @@ func TestNursery(t *testing.T) {
 	})
 
 	t.Run("WithMaxGoroutines", func(t *testing.T) {
+		t.Run("Zero", func(t *testing.T) {
+			start := time.Now()
+			err := Block(func(n Nursery) error {
+				for i := 0; i < 3; i++ {
+					n.Go(func() error {
+						time.Sleep(10 * time.Millisecond)
+						return nil
+					})
+				}
+				return nil
+			}, WithMaxGoroutines(0))
+
+			if err != nil {
+				t.Error(err)
+			}
+
+			// With no limit, all goroutines should run concurrently
+			if time.Since(start) >= 30*time.Millisecond {
+				t.Fatal("goroutines not running concurrently with zero limit")
+			}
+		})
+
+		t.Run("Negative", func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatal("expected panic with negative max goroutines")
+				}
+				if r != "max goroutine option must be a non negative integer" {
+					t.Fatalf("unexpected panic message: %v", r)
+				}
+			}()
+
+			_ = Block(func(n Nursery) error {
+				return nil
+			}, WithMaxGoroutines(-1))
+
+			t.Fatal("should have panicked")
+		})
+
 		t.Run("SingleRoutine", func(t *testing.T) {
 			start := time.Now()
 			err := Block(func(n Nursery) error {
@@ -362,20 +402,7 @@ func TestNursery(t *testing.T) {
 			t.Fatalf("expected 2 errors, got %d", len(collectedErrors))
 		}
 
-		// Check that both errors are in the collection
-		// (order may vary due to concurrency)
-		foundErr1 := false
-		foundErr2 := false
-		for _, err := range collectedErrors {
-			if err == expectedErr1 {
-				foundErr1 = true
-			}
-			if err == expectedErr2 {
-				foundErr2 = true
-			}
-		}
-
-		if !foundErr1 || !foundErr2 {
+		if collectedErrors[0] == nil || collectedErrors[1] == nil {
 			t.Fatalf("not all expected errors were collected: %v", collectedErrors)
 		}
 	})
@@ -391,46 +418,6 @@ func TestNursery(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected nil error with WithIgnoreErrors, got: %v", err)
 		}
-	})
-
-	t.Run("WithMaxGoroutines/Zero", func(t *testing.T) {
-		start := time.Now()
-		err := Block(func(n Nursery) error {
-			for i := 0; i < 3; i++ {
-				n.Go(func() error {
-					time.Sleep(10 * time.Millisecond)
-					return nil
-				})
-			}
-			return nil
-		}, WithMaxGoroutines(0))
-
-		if err != nil {
-			t.Error(err)
-		}
-
-		// With no limit, all goroutines should run concurrently
-		if time.Since(start) >= 30*time.Millisecond {
-			t.Fatal("goroutines not running concurrently with zero limit")
-		}
-	})
-
-	t.Run("WithMaxGoroutines/Negative", func(t *testing.T) {
-		defer func() {
-			r := recover()
-			if r == nil {
-				t.Fatal("expected panic with negative max goroutines")
-			}
-			if r != "max goroutine option must be a non negative integer" {
-				t.Fatalf("unexpected panic message: %v", r)
-			}
-		}()
-
-		_ = Block(func(n Nursery) error {
-			return nil
-		}, WithMaxGoroutines(-1))
-
-		t.Fatal("should have panicked")
 	})
 }
 
