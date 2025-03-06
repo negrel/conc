@@ -88,3 +88,16 @@ func WithMaxGoroutines(max int) BlockOption {
 		n.limiter = make(chan struct{}, max+1)
 	}
 }
+
+// WithOutputBuffer returns a nursery block option that sets the output buffer
+// size for AsyncMap operations. This option is only used by AsyncMap and is
+// ignored by other functions. If size is zero or negative, an unbuffered
+// channel is used (default behavior).
+func WithOutputBuffer(size int) BlockOption {
+	return func(n *nursery) {
+		if size < 0 {
+			size = 0
+		}
+		n.bufSize = size
+	}
+}
