@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 )
 
-// Routine define a function executed in its own goroutine.
+// Routine define a function executed in a separate goroutine.
 type Routine = func() error
 
 // Nursery is a supervisor that executes goroutines and manages their lifecycle.
