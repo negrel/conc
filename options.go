@@ -71,20 +71,3 @@ func WithIgnoreErrors() BlockOption {
 		n.onError = func(err error) {}
 	}
 }
-
-// WithMaxGoroutines returns a nursery block option that limits the maximum
-// number of goroutine running concurrently. If max is zero, number of goroutine
-// is unlimited. This function panics if max is negative.
-func WithMaxGoroutines(max int) BlockOption {
-	return func(n *nursery) {
-		if max < 0 {
-			panic("max goroutine option must be a non negative integer")
-		} else if max == 0 {
-			n.limiter = nil
-			return
-		}
-
-		// +1 because block function is a routine also.
-		n.limiter = make(chan struct{}, max+1)
-	}
-}

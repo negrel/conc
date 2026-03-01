@@ -26,7 +26,6 @@ type nursery struct {
 	cancel        func()
 	onError       func(error)
 	errors        chan error
-	limiter       limiter
 	goRoutine     chan Routine
 	routinesCount atomic.Int32
 }
@@ -37,7 +36,6 @@ func newNursery() *nursery {
 		cancel:    nil,
 		onError:   nil,
 		errors:    make(chan error),
-		limiter:   nil,
 		goRoutine: make(chan func() error),
 	}
 
@@ -60,22 +58,12 @@ func (n *nursery) Go(routine func() error) {
 		panic("use of nursery after end of block")
 	}
 
-	if n.limiter == nil {
-		select {
-		case n.goRoutine <- routine:
-			// Successfully reused a goroutine.
-		default:
-			// No goroutine available, spawn a new one.
-			n.goNew(routine)
-		}
-	} else {
-		select {
-		case n.limiter <- struct{}{}:
-			// We are below our limit.
-			n.goNew(routine)
-		case n.goRoutine <- routine:
-			// Successfully reused a goroutine.
-		}
+	select {
+	case n.goRoutine <- routine:
+		// Successfully reused a goroutine.
+	default:
+		// No goroutine available, spawn a new one.
+		n.goNew(routine)
 	}
 }
 
@@ -160,5 +148,3 @@ func Block(block func(n Nursery) error, opts ...BlockOption) (err error) {
 
 	return err
 }
-
-type limiter chan struct{}
